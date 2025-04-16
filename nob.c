@@ -4,7 +4,7 @@
 #define PLATFORM_LINUX 1
 #define PLATFORM_OSX 2
 
-#define PLATFORM_OS PLATFORM_OSX
+#define PLATFORM_OS PLATFORM_LINUX
 
 void add_raylib(Nob_Cmd *cmd) {
 
