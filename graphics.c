@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define NOB_IMPLEMENTATION
@@ -7,51 +8,101 @@
 
 #include "raylib.h"
 
-#define WIDTH  800
-#define HEIGHT 600
+#define RUN_RAYLIB
+#undef RUN_RAYLIB
+
+#ifdef RUN_RAYLIB
+    #define WIDTH  800
+    #define HEIGHT 600
+#else
+    #define WIDTH  255*4
+    #define HEIGHT 255*4
+#endif // RUN_RAYLIB
 
 typedef struct {
-    uint32_t *pixels;
+    Color *pixels;
     int width;
     int height;
 } Canvas;
 
-
-void put_pixel(Canvas *canvas, int x, int y, uint32_t color) {
+void put_pixel(Canvas *canvas, int x, int y, Color color) {
     canvas->pixels[y*canvas->width+x] = color;
 }
 
-int main(void) {
-    InitWindow(WIDTH, HEIGHT, "Computer Graphics");
-
-    Canvas canvas = {0};
-    canvas.width = 10;
-    canvas.height = 10;
-    canvas.pixels = calloc(sizeof(Color), canvas.width*canvas.height);
-
-    for (int y = 0; y < canvas.height; y++) {
-        for (int x = 0; x < canvas.width; x++) {
-            put_pixel(&canvas, x, y, 0xFF0000FF);
-        }
-    }
+Texture2D canvas_to_texture(Canvas *canvas) {
     Image image = {0};
-    image.data = canvas.pixels;
-    image.width = canvas.width;
-    image.height = canvas.height;
+    image.data = canvas->pixels;
+    image.width = canvas->width;
+    image.height = canvas->height;
     image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
     image.mipmaps = 1;
     Texture2D texture = LoadTextureFromImage(image);
     UnloadImage(image);
+    return texture;
+}
 
+void canvas_to_ppm_file(Canvas *canvas) {
+    FILE *f = fopen("canvas.ppm", "w");
+    if (f == NULL) {
+        fprintf(stderr, "ERROR: Could not open out.ppm\n");
+        return;
+    }
+
+    fprintf(f, "P6\n");
+    fprintf(f, "%d %d\n", canvas->width, canvas->height);
+    fprintf(f, "255\n");
+    for (int y = 0; y < canvas->height; y++) {
+        for (int x = 0; x < canvas->width; x++) {
+            Color c = canvas->pixels[y*canvas->width+x];
+            fputc(c.r, f);
+            fputc(c.g, f);
+            fputc(c.b, f);
+        }
+    }
+}
+
+
+int main(void) {
+
+#ifdef RUN_RAYLIB
+    InitWindow(WIDTH, HEIGHT, "Computer Graphics");
+#endif // RUN_RAYLIB
+
+    Canvas canvas = {0};
+#ifdef RUN_RAYLIB
+    canvas.width = WIDTH/2;
+    canvas.height = HEIGHT/2;
+#else
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+#endif // RUN_RAYLIB
+    canvas.pixels = calloc(sizeof(Color), canvas.width*canvas.height);
+
+#ifdef RUN_RAYLIB
+    Texture2D texture = canvas_to_texture(&canvas);
+#endif // RUN_RAYLIB
+
+    for (int y = 0; y < canvas.height; y++) {
+        for (int x = 0; x < canvas.width; x++) {
+            put_pixel(&canvas, x, y, (Color){.r=(255+x/((y*y)+1))%255,.g=(122+x*y)%255,.b=0,.a=255});
+        }
+    }
+
+    canvas_to_ppm_file(&canvas);
+
+#ifdef RUN_RAYLIB
+    UpdateTexture(texture, canvas.pixels);
     SetTargetFPS(120);
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(GetColor(0x181818FF));
-        DrawTexture(texture, WIDTH/2, HEIGHT/2, WHITE);
+        DrawTexture(texture, WIDTH/2-canvas.width/2, HEIGHT/2-canvas.height/2, WHITE);
         EndDrawing();
     }
 
     UnloadTexture(texture);
     CloseWindow();
+#endif // RUN_RAYLIB
+
     return 0;
 }
