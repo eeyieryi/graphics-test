@@ -20,12 +20,12 @@
 #endif // RUN_RAYLIB
 
 typedef struct {
-    Color *pixels;
+    uint32_t *pixels;
     int width;
     int height;
 } Canvas;
 
-void put_pixel(Canvas *canvas, int x, int y, Color color) {
+void put_pixel(Canvas *canvas, int x, int y, uint32_t color) {
     canvas->pixels[y*canvas->width+x] = color;
 }
 
@@ -53,10 +53,13 @@ void canvas_to_ppm_file(Canvas *canvas) {
     fprintf(f, "255\n");
     for (int y = 0; y < canvas->height; y++) {
         for (int x = 0; x < canvas->width; x++) {
-            Color c = canvas->pixels[y*canvas->width+x];
-            fputc(c.r, f);
-            fputc(c.g, f);
-            fputc(c.b, f);
+            uint32_t c = canvas->pixels[y*canvas->width+x];
+            uint8_t r = ((c >> 8*0) & 0xFF);
+            uint8_t g = ((c >> 8*1) & 0xFF);
+            uint8_t b = ((c >> 8*2) & 0xFF);
+            fputc(r, f);
+            fputc(g, f);
+            fputc(b, f);
         }
     }
 }
@@ -84,7 +87,11 @@ int main(void) {
 
     for (int y = 0; y < canvas.height; y++) {
         for (int x = 0; x < canvas.width; x++) {
-            put_pixel(&canvas, x, y, (Color){.r=(255+x/((y*y)+1))%255,.g=(122+x*y)%255,.b=0,.a=255});
+            uint8_t r = (255+x/((y*y)+1))%255;
+            uint8_t g = (122+x*y)%255;
+            uint8_t b = 0;
+            uint8_t a = 255;
+            put_pixel(&canvas, x, y, (uint32_t)((r>>(8*0))|(g<<(8*1))|(b<<(8*2))|(a<<(8*3))));
         }
     }
 
