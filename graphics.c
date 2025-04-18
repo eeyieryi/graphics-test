@@ -1,5 +1,5 @@
-#include <stdint.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #define NOB_IMPLEMENTATION
@@ -25,8 +25,29 @@ typedef struct {
     int height;
 } Canvas;
 
+uint8_t clamp_color(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (uint8_t)v;
+}
+
+#define to_c_with_alpha(r, g, b, a) ((r>>(8*0)) | (g<<(8*1)) | (b<<(8*2)) | (a<<(8*3)))
+#define to_c(r, g, b) ((r>>(8*0)) | (g<<(8*1)) | (b<<(8*2)) | (0xFF<<(8*3)))
+#define color_r(c) ((c >> 8*0) & 0xFF)
+#define color_g(c) ((c >> 8*1) & 0xFF)
+#define color_b(c) ((c >> 8*2) & 0xFF)
+#define color_a(c) ((c >> 8*3) & 0xFF)
+#define color_add(c, c2) to_c(clamp_color(color_r(c)+color_r(c2)), clamp_color(color_g(c)+color_g(c2)), clamp_color(color_b(c)+color_b(c2)))
+#define color_mult(c, k) to_c(clamp_color((color_r(c)*k)), clamp_color((color_g(c)*k)), clamp_color((color_b(c)*k)))
+
 void put_pixel(Canvas *canvas, int x, int y, uint32_t color) {
     canvas->pixels[y*canvas->width+x] = color;
+}
+
+void PutPixel(Canvas *canvas, int x, int y, uint32_t color) {
+    assert(-canvas->width/2 <= x && x <= canvas->width/2 && "Overflow x");
+    assert(-canvas->height/2 <= y && y <= canvas->height/2 && "Overflow y");
+    put_pixel(canvas, (canvas->width/2)+x, (canvas->height/2)-y, color);
 }
 
 Texture2D canvas_to_texture(Canvas *canvas) {
@@ -54,19 +75,15 @@ void canvas_to_ppm_file(Canvas *canvas) {
     for (int y = 0; y < canvas->height; y++) {
         for (int x = 0; x < canvas->width; x++) {
             uint32_t c = canvas->pixels[y*canvas->width+x];
-            uint8_t r = ((c >> 8*0) & 0xFF);
-            uint8_t g = ((c >> 8*1) & 0xFF);
-            uint8_t b = ((c >> 8*2) & 0xFF);
-            fputc(r, f);
-            fputc(g, f);
-            fputc(b, f);
+            fputc(color_r(c), f);
+            fputc(color_g(c), f);
+            fputc(color_b(c), f);
         }
     }
 }
 
 
 int main(void) {
-
 #ifdef RUN_RAYLIB
     InitWindow(WIDTH, HEIGHT, "Computer Graphics");
 #endif // RUN_RAYLIB
@@ -91,11 +108,29 @@ int main(void) {
             uint8_t g = (122+x*y)%255;
             uint8_t b = 0;
             uint8_t a = 255;
-            put_pixel(&canvas, x, y, (uint32_t)((r>>(8*0))|(g<<(8*1))|(b<<(8*2))|(a<<(8*3))));
+            put_pixel(&canvas, x, y, to_c_with_alpha(r, g, b, a));
         }
     }
 
+    for (int y = -75; y < 25; y++) {
+        for (int x = -75; x < 25; x++) {
+            PutPixel(&canvas, x, y, color_add(to_c(255, 0, 0), to_c(0, 255, 0)));
+        }
+    }
+    for (int y = -50; y < 50; y++) {
+        for (int x = -50; x < 50; x++) {
+            PutPixel(&canvas, x, y, color_mult(to_c(192, 64, 32), 2));
+        }
+    }
+    for (int y = -25; y < 75; y++) {
+        for (int x = -25; x < 75; x++) {
+            PutPixel(&canvas, x, y, to_c(192, 64, 32));
+        }
+    }
+
+#ifndef RUN_RAYLIB
     canvas_to_ppm_file(&canvas);
+#endif // RUN_RAYLIB
 
 #ifdef RUN_RAYLIB
     UpdateTexture(texture, canvas.pixels);
