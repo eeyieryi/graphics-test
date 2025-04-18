@@ -4,8 +4,15 @@
 #include <float.h>
 #include <math.h>
 
+#define INTERACTIVE_MODE
+//#undef INTERACTIVE_MODE
+
 #include "raylib.h"
 #include "raymath.h"
+#ifdef INTERACTIVE_MODE
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
+#endif
 
 #define NOB_IMPLEMENTATION
 #include "nob.h"
@@ -81,10 +88,10 @@ Texture2D canvas_to_texture(Canvas *canvas) {
     return texture;
 }
 
-Vector3 canvas_to_viewport(Canvas *canvas, int vw, int vh, int x, int y, int d) {
+Vector3 canvas_to_viewport(Canvas *canvas, float vw, float vh, float d, float x, float y) {
     return (Vector3){
-        .x = (float)x*(float)vw/(float)canvas->width,
-        .y = (float)y*(float)vh/(float)canvas->height,
+        .x = x*vw/canvas->width,
+        .y = y*vh/canvas->height,
         .z = d
     };
 }
@@ -155,65 +162,16 @@ void canvas_to_ppm_file(Canvas *canvas) {
     }
 }
 
-
 int main(void) {
     Canvas canvas = {0};
-    canvas.width = WIDTH/2;
-    canvas.height = HEIGHT/2;
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
     canvas.pixels = calloc(sizeof(uint32_t), canvas.width*canvas.height);
 
-#if 1
-    for (int i = 0; i < canvas.width; i++) {
-        for (int j = 0; j < canvas.height; j++) {
-            if (i == 0 || i + 1 == canvas.width || j == 0 || j + 1 == canvas.height) {
-                put_pixel(&canvas, i, j, to_c(255, 255, 255));
-            }
-        }
-    }
-#endif
-
-#if 0
-    for (int y = 0; y < canvas.height; y++) {
-        for (int x = 0; x < canvas.width; x++) {
-            uint8_t r = (255+x/((y*y)+1))%255;
-            uint8_t g = (122+x*y)%255;
-            uint8_t b = 0;
-            uint8_t a = 255;
-            put_pixel(&canvas, x, y, to_c_with_alpha(r, g, b, a));
-        }
-    }
-
-    for (int y = -75; y < 25; y++) {
-        for (int x = -75; x < 25; x++) {
-            PutPixel(&canvas, x, y, color_add(to_c(255, 0, 0), to_c(0, 255, 0)));
-        }
-    }
-    for (int y = -50; y < 50; y++) {
-        for (int x = -50; x < 50; x++) {
-            PutPixel(&canvas, x, y, color_mult(to_c(192, 64, 32), 2));
-        }
-    }
-    for (int y = -25; y < 75; y++) {
-        for (int x = -25; x < 75; x++) {
-            PutPixel(&canvas, x, y, to_c(192, 64, 32));
-        }
-    }
-    for (int y = -canvas.height/2; y < canvas.height/2; y++) {
-        for (int x = -canvas.width/2; x < canvas.width/2; x++) {
-            uint8_t r = (255+x/((y*y)+1))%255;
-            uint8_t g = (122+x*y)%255;
-            uint8_t b = 0;
-            uint8_t a = 255;
-            PutPixel(&canvas, x, y, to_c_with_alpha(r, g, b, a));
-        }
-    }
-#endif
-
-#if 1
     Vector3 camera = {0, 0, 0};
-    int vw = 1;
-    int vh = 1;
-    int d = 1;
+    float vw = 1;
+    float vh = 1;
+    float d = 1;
     Scene scene = {0};
 
     nob_da_append(&scene, ((SceneObject) {
@@ -221,7 +179,7 @@ int main(void) {
         .obj = {
             (Sphere){
                 .radius = 1,
-                .center = (Vector3){0, -1, 3},
+                .center = (Vector3){-1, -1, 5},
                 .color = to_c(255, 0, 0)
             }
         }
@@ -231,7 +189,7 @@ int main(void) {
         .obj = {
             (Sphere){
                 .radius = 1,
-                .center = (Vector3){2, 0, 4},
+                .center = (Vector3){1, -1, 4},
                 .color = to_c(0, 0, 255)
             }
         }
@@ -241,7 +199,7 @@ int main(void) {
         .obj = {
             (Sphere){
                 .radius = 1,
-                .center = (Vector3){-2, 0, 4},
+                .center = (Vector3){-2, -1.1, 4},
                 .color = to_c(255, 255, 0)
             }
         }
@@ -259,29 +217,58 @@ int main(void) {
 
     for (int y = -canvas.height/2; y < canvas.height/2; y++) {
         for (int x = -canvas.width/2; x < canvas.width/2; x++) {
-            Vector3 direction = canvas_to_viewport(&canvas, vw, vh, x, y, d);
+            Vector3 direction = canvas_to_viewport(&canvas, vw, vh, d, x, y);
             uint32_t color = trace_ray(&scene, camera, direction, 1, T_MAX);
             PutPixel(&canvas, x, y, color);
         }
     }
-#endif
 
-#if 1
+#ifndef INTERACTIVE_MODE
     canvas_to_ppm_file(&canvas);
-#endif
-
-#if 0
+#else
     InitWindow(WIDTH, HEIGHT, "Computer Graphics");
     Texture2D texture = canvas_to_texture(&canvas);
+    canvas.pixels = calloc(sizeof(uint32_t), canvas.width*canvas.height);
     SetTargetFPS(120);
+    bool should_update_canvas = true;
     while (!WindowShouldClose()) {
+
+        if (should_update_canvas) {
+            for (int y = -canvas.height/2; y < canvas.height/2; y++) {
+                for (int x = -canvas.width/2; x < canvas.width/2; x++) {
+                    Vector3 direction = canvas_to_viewport(&canvas, vw, vh, d, x, y);
+                    uint32_t color = trace_ray(&scene, camera, direction, 1, T_MAX);
+                    PutPixel(&canvas, x, y, color);
+                }
+            }
+            UpdateTexture(texture, canvas.pixels);
+            should_update_canvas = false;
+        }
+
         BeginDrawing();
-            DrawFPS(50, 50);
+        {
             ClearBackground(GetColor(0x181818FF));
             DrawTexture(texture, 0, 0, WHITE);
+            DrawFPS(WIDTH-120, 50);
+
+            int result = 0;
+            int y = 24;
+            result += GuiSlider((Rectangle){24,y,120,30}, "c.x", NULL, &camera.x, -2.5, 2.5);
+            y += 30+2;
+            result += GuiSlider((Rectangle){24,y,120,30}, "c.y", NULL, &camera.y, -2.5, 2.5);
+            y += 30+2;
+            result += GuiSlider((Rectangle){24,y,120,30}, "c.z", NULL, &camera.z, -2.5, 2.5);
+            y += 30+2;
+            result += GuiSlider((Rectangle){24,y,120,30}, "vw", NULL, &vw, -2, 4);
+            y += 30+2;
+            result += GuiSlider((Rectangle){24,y,120,30}, "vh", NULL, &vh, -2, 4);
+            y += 30+2;
+            result += GuiSlider((Rectangle){24,y,120,30}, "d", NULL, &d, 0.5, 1.5);
+
+            if (result > 0) should_update_canvas = true;
+        }
         EndDrawing();
     }
-
 
     UnloadTexture(texture);
     CloseWindow();
