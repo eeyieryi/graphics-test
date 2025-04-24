@@ -3,22 +3,21 @@
 #include <stdlib.h>
 #include <float.h>
 #include <math.h>
-
-#define INTERACTIVE_MODE
-//#undef INTERACTIVE_MODE
-
-#include "raylib.h"
-#include "raymath.h"
-#ifdef INTERACTIVE_MODE
-#define RAYGUI_IMPLEMENTATION
-#include "raygui.h"
-#endif
+#include <assert.h>
 
 #define NOB_IMPLEMENTATION
 #include "nob.h"
 
-#define WIDTH  800
-#define HEIGHT 600
+#include "raylib.h"
+#include "raymath.h"
+
+#define INTERACTIVE_MODE
+#undef INTERACTIVE_MODE
+
+#ifdef INTERACTIVE_MODE
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
+#endif
 
 typedef struct {
     uint32_t *pixels;
@@ -28,6 +27,7 @@ typedef struct {
 
 typedef enum {
     SCENE_OBJECT_SPHERE = 1,
+    SCENE_OBJECT_LIGHT = 2,
 } SceneObjectType;
 
 typedef struct {
@@ -36,10 +36,26 @@ typedef struct {
     uint32_t color;
 } Sphere;
 
+typedef enum {
+    LIGHT_TYPE_AMBIENT = 1,
+    LIGHT_TYPE_POINT = 2,
+    LIGHT_TYPE_DIRECTIONAL = 3,
+} LightType;
+
+typedef struct {
+    LightType type;
+    float intensity;
+    union {
+        Vector3 position;
+        Vector3 direction;
+    };
+} Light;
+
 typedef struct {
     SceneObjectType type;
     union {
         Sphere sphere;
+        Light light;
     } obj;
 } SceneObject;
 
@@ -114,24 +130,29 @@ Vector2 IntersectRaySphere(Vector3 origin, Vector3 direction, Sphere sphere) {
     return (Vector2){t1, t2};
 }
 
-uint32_t trace_ray(Scene *scene, Vector3 origin, Vector3 direction, float t_min, float t_max) {
-    float closest_t = t_max;
-    uint32_t color = to_c(0x18, 0x18, 0x18);
-
+float compute_lighting(Scene *scene, Vector3 P, Vector3 N) {
+    float intensity = 0.0;
+    float length_n = Vector3Length(N);
     for (size_t i = 0; i < scene->count; i++) {
         switch (scene->items[i].type) {
-            case SCENE_OBJECT_SPHERE: {
-                Sphere sphere = scene->items[i].obj.sphere;
-                Vector2 ts = IntersectRaySphere(origin, direction, sphere);
-                float t1 = ts.x;
-                float t2 = ts.y;
-                if (t_min < t1 && t1 < t_max && t1 < closest_t) {
-                    closest_t = t1;
-                    color = sphere.color;
-                }
-                if (t_min < t2 && t2 < t_max && t2 < closest_t) {
-                    closest_t = t2;
-                    color = sphere.color;
+            case SCENE_OBJECT_SPHERE:
+                continue;
+            case SCENE_OBJECT_LIGHT: {
+                Light light = scene->items[i].obj.light;
+                Vector3 L;
+                if (light.type == LIGHT_TYPE_AMBIENT) {
+                    intensity += light.intensity;
+                } else {
+                    if (light.type == LIGHT_TYPE_DIRECTIONAL) {
+                        L = Vector3Subtract(light.position, P);
+                    } else {
+                        assert(light.type == LIGHT_TYPE_POINT);
+                        L = light.direction;
+                    }
+                    float n_dot_l = Vector3DotProduct(N, L);
+                    if (n_dot_l > 0) {
+                        intensity += light.intensity * n_dot_l/(length_n * Vector3Length(L));
+                    }
                 }
             } break;
             default:
@@ -139,7 +160,47 @@ uint32_t trace_ray(Scene *scene, Vector3 origin, Vector3 direction, float t_min,
                 break;
         }
     }
-    return color;
+    return intensity;
+}
+
+
+uint32_t trace_ray(Scene *scene, Vector3 origin, Vector3 direction, float t_min, float t_max) {
+    float closest_t = t_max;
+
+    Sphere *closest_sphere = NULL;
+
+    for (size_t i = 0; i < scene->count; i++) {
+        switch (scene->items[i].type) {
+            case SCENE_OBJECT_SPHERE: {
+                Sphere *sphere = &scene->items[i].obj.sphere;
+                Vector2 ts = IntersectRaySphere(origin, direction, *sphere);
+                float t1 = ts.x;
+                float t2 = ts.y;
+                if (t_min < t1 && t1 < t_max && t1 < closest_t) {
+                    closest_t = t1;
+                    closest_sphere = sphere;
+                }
+                if (t_min < t2 && t2 < t_max && t2 < closest_t) {
+                    closest_t = t2;
+                    closest_sphere = sphere;
+                }
+            } break;
+            case SCENE_OBJECT_LIGHT:
+                continue;
+            default:
+                NOB_UNREACHABLE("Only spheres");
+                break;
+        }
+    }
+
+    if (closest_sphere == NULL) {
+        return to_c(0x18, 0x18, 0x18);
+    }
+
+    Vector3 P = Vector3Add(origin, Vector3Scale(direction, closest_t));
+    Vector3 N = Vector3Subtract(P, closest_sphere->center);
+    N = Vector3Scale(N, 1.0/Vector3Length(N));
+    return color_mult(closest_sphere->color, compute_lighting(scene, P, N));
 }
 
 void canvas_to_ppm_file(Canvas *canvas) {
@@ -162,6 +223,9 @@ void canvas_to_ppm_file(Canvas *canvas) {
     }
 }
 
+#define WIDTH  800
+#define HEIGHT 600
+
 int main(void) {
     Canvas canvas = {0};
     canvas.width = WIDTH;
@@ -174,43 +238,126 @@ int main(void) {
     float d = 1;
     Scene scene = {0};
 
+#if 0
     nob_da_append(&scene, ((SceneObject) {
         .type = SCENE_OBJECT_SPHERE,
         .obj = {
-            (Sphere){
+            .sphere = (Sphere){
                 .radius = 1,
                 .center = (Vector3){-1, -1, 5},
                 .color = to_c(255, 0, 0)
             }
         }
     }));
+
     nob_da_append(&scene, ((SceneObject) {
         .type = SCENE_OBJECT_SPHERE,
         .obj = {
-            (Sphere){
+            .sphere = (Sphere){
+                .radius = 1,
+                .center = (Vector3){-2, -1.1, 4},
+                .color = to_c(0, 255, 0)
+            }
+        }
+    }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_SPHERE,
+        .obj = {
+            .sphere = (Sphere){
                 .radius = 1,
                 .center = (Vector3){1, -1, 4},
                 .color = to_c(0, 0, 255)
             }
         }
     }));
+#endif
+
+#if 1
     nob_da_append(&scene, ((SceneObject) {
         .type = SCENE_OBJECT_SPHERE,
         .obj = {
-            (Sphere){
+            .sphere = (Sphere){
                 .radius = 1,
-                .center = (Vector3){-2, -1.1, 4},
+                .center = (Vector3){0, -1, 3},
+                .color = to_c(255, 0, 0)
+            }
+        }
+    }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_SPHERE,
+        .obj = {
+            .sphere = (Sphere){
+                .radius = 1,
+                .center = (Vector3){-2, 0, 4},
+                .color = to_c(0, 255, 0)
+            }
+        }
+    }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_SPHERE,
+        .obj = {
+            .sphere = (Sphere){
+                .radius = 1,
+                .center = (Vector3){2, 0, 4},
+                .color = to_c(0, 0, 255)
+            }
+        }
+    }));
+#endif
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_SPHERE,
+        .obj = {
+            .sphere = (Sphere){
+                .radius = 5000,
+                .center = (Vector3){0, -5001, 0},
                 .color = to_c(255, 255, 0)
             }
         }
     }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_LIGHT,
+        .obj = {
+            .light = (Light){
+                .type = LIGHT_TYPE_AMBIENT,
+                .intensity = 0.2,
+            }
+        }
+    }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_LIGHT,
+        .obj = {
+            .light = (Light){
+                .type = LIGHT_TYPE_POINT,
+                .intensity = 0.6,
+                .position = (Vector3){2, 1, 0}
+            }
+        }
+    }));
+
+    nob_da_append(&scene, ((SceneObject) {
+        .type = SCENE_OBJECT_LIGHT,
+        .obj = {
+            .light = (Light){
+                .type = LIGHT_TYPE_DIRECTIONAL,
+                .intensity = 0.2,
+                .direction = (Vector3){1, 4, 4}
+            }
+        }
+    }));
+
     nob_da_append(&scene, ((SceneObject) {
         .type = SCENE_OBJECT_SPHERE,
         .obj = {
-            (Sphere){
+            .sphere = (Sphere){
                 .radius = 5000,
                 .center = (Vector3){0, -5001, 0},
-                .color = to_c(255, 255, 255)
+                .color = to_c(255, 255, 0)
             }
         }
     }));
